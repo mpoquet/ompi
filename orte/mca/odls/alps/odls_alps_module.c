@@ -460,6 +460,7 @@ static int do_child(orte_odls_spawn_caddy_t *cd, int write_fd)
         }
     }
 
+    printf("%s:%d CALLING EXECVE\n", __FILE__, __LINE__);
     execve(cd->cmd, cd->argv, cd->env);
     send_error_show_help(write_fd, 1,
                          "help-orte-odls-alps.txt", "execve error",

@@ -134,6 +134,8 @@
 #include "orte/mca/odls/default/odls_default.h"
 #include "orte/orted/pmix/pmix_server.h"
 
+#define RSGHACK 1
+
 /*
  * Module functions (function pointers used in a struct)
  */
@@ -442,7 +444,59 @@ static int do_child(orte_odls_spawn_caddy_t *cd, int write_fd)
         }
     }
 
+    #ifdef RSGHACK
+    /* Hack environment to set Remote SimGrid connection port */
+
+    /* First, retrieve OMPI_COMM_WORLD_RANK */
+    long int rank = -1;
+    int error = 0;
+    int nb_env_variables = 0;
+    const char * prefix = "OMPI_COMM_WORLD_RANK=";
+    size_t prefix_length = strlen(prefix);
+
+    for (char ** env = cd->env; *env != NULL; env++)
+    {
+        nb_env_variables++;
+        size_t string_length = strlen(*env);
+        if (string_length < prefix_length)
+            continue;
+        else if (strncmp(prefix, *env, prefix_length) == 0) {
+            /* Found OMPI_COMM_WORLD_RANK. Parse value. */
+            const char * value_string = *env + prefix_length;
+
+            char * endptr;
+            errno = 0;
+            rank = strtol(value_string, &endptr, 0);
+            if (errno != 0) {
+                printf("%s:%d Cannot parse OMPI_COMM_WORLD_RANK value. "
+                    "Env string: '%s'. Value string: '%s'. Value int: %ld\n",
+                    __FILE__, __LINE__, *env, value_string, rank);
+                error = 1;
+            }
+            break;
+        }
+    }
+
+    if (rank != -1 && error == 0) {
+        /* Set the RsgRpcNetworkName environment variable */
+        errno = 0;
+        cd->env = reallocarray(cd->env, sizeof(char *), nb_env_variables + 2);
+        if (errno != 0) {
+            printf("%s:%d Realloaction of environment variables failed!\n",
+                __FILE__, __LINE__);
+        } else {
+            int err = asprintf(&cd->env[nb_env_variables],
+                "RsgRpcNetworkName=Proc%ld", rank);
+            if (err == -1) {
+                printf("%s:%d asprintf failed!\n", __FILE__, __LINE__);
+            }
+            cd->env[nb_env_variables+1] = NULL;
+        }
+    }
+    #endif // RSGHACK
+
     /* Exec the new executable */
+    printf("%s:%d CALLING EXECVE\n", __FILE__, __LINE__);
     execve(cd->cmd, cd->argv, cd->env);
     getcwd(dir, sizeof(dir));
     send_error_show_help(write_fd, 1,
@@ -577,6 +631,20 @@ static int do_parent(orte_odls_spawn_caddy_t *cd, int read_fd)
     return ORTE_SUCCESS;
 }
 
+// struct RemoteSimGridServerInfo
+// {
+//     int link[2]; // Used to get rsg_server's stdout
+//     pid_t pid; // rsg_server's pid
+// };
+
+// extern struct RemoteSimGridServerInfo global_rsg_server_info;
+
+// void initialize_global_rsg_server_info()
+// {
+//     printf("%s:%d: initializing global RSG server info\n", __FILE__, __LINE__);
+//     struct RemoteSimGridServerInfo global_rsg_info;
+//     global_rsg_info.pid = -42;
+// }
 
 /**
  *  Fork/exec the specified processes
@@ -604,6 +672,29 @@ static int odls_default_fork_local_proc(void *cdptr)
         }
         return ORTE_ERR_SYS_LIMITS_PIPES;
     }
+
+#ifdef RSGHACK
+    // Instantiate a RSG server if needed (in current process, not in the child)
+    // if (global_rsg_server_info.pid == -42)
+    // {
+    //     pipe(global_rsg_server_info.link);
+    //     global_rsg_server_info.pid = fork();
+
+    //     if(global_rsg_server_info.pid == 0) // child (RSG server)
+    //     {
+    //         // setup stdout links
+    //         dup2(link[1], STDOUT_FILENO);
+    //         close(link[0]);
+    //         close(link[1]);
+    //         execl("rsg_server");
+    //     }
+    //     else if (global_rsg_server_info.pid != -1)
+    //     {
+    //         close(link[1]);
+    //     }
+
+    // }
+#endif
 
     /* Fork off the child */
     pid = fork();

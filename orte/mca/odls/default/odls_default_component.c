@@ -42,6 +42,8 @@
 #include "orte/mca/odls/base/odls_private.h"
 #include "orte/mca/odls/default/odls_default.h"
 
+// void initialize_global_rsg_server_info();
+
 /*
  * Instantiate the public struct with all of our public information
  * and pointers to our public functions in it
@@ -72,6 +74,8 @@ orte_odls_base_component_t mca_odls_default_component = {
 
 int orte_odls_default_component_open(void)
 {
+    printf("%s:%d OPENING COMPONENT\n", __FILE__, __LINE__);
+    //initialize_global_rsg_server_info();
     return ORTE_SUCCESS;
 }
 
