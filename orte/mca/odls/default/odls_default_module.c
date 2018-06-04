@@ -110,6 +110,8 @@
 #endif
 #include <ctype.h>
 
+#include <regex.h>
+
 #include "opal/mca/hwloc/hwloc-internal.h"
 #include "opal/mca/hwloc/base/base.h"
 #include "opal/class/opal_pointer_array.h"
@@ -143,6 +145,9 @@ static int orte_odls_default_launch_local_procs(opal_buffer_t *data);
 static int orte_odls_default_kill_local_procs(opal_pointer_array_t *procs);
 static int orte_odls_default_signal_local_procs(const orte_process_name_t *proc, int32_t signal);
 static int orte_odls_default_restart_proc(orte_proc_t *child);
+void initialize_global_rsg_server_info(void);
+int wait_rsg_server_external_call(FILE * rsg_server_fp,
+    char ** env_variable_name, char ** env_variable_value, char ** command);
 
 /*
  * Explicitly declared functions so that we can get the noreturn
@@ -152,7 +157,9 @@ static void send_error_show_help(int fd, int exit_status,
                                  const char *file, const char *topic, ...)
     __opal_attribute_noreturn__;
 
-static int do_child(orte_odls_spawn_caddy_t *cd, int write_fd)
+static int do_child(orte_odls_spawn_caddy_t *cd, int write_fd,
+    const char * env_variable_name_to_add,
+    const char * env_variable_value_to_add)
     __opal_attribute_noreturn__;
 
 
@@ -325,8 +332,11 @@ static int close_open_file_descriptors(int write_fd,
     return ORTE_SUCCESS;
 }
 
-static int do_child(orte_odls_spawn_caddy_t *cd, int write_fd)
+static int do_child(orte_odls_spawn_caddy_t *cd, int write_fd,
+    const char * env_variable_name_to_add,
+    const char * env_variable_value_to_add)
 {
+    printf("%s:%d: %s\n", __FILE__, __LINE__, __FUNCTION__);
     int i;
     sigset_t sigs;
     long fd, fdmax = sysconf(_SC_OPEN_MAX);
@@ -337,6 +347,8 @@ static int do_child(orte_odls_spawn_caddy_t *cd, int write_fd)
      * signals we send to it will reach any children it spawns */
     setpgid(0, 0);
 #endif
+
+    printf("%s:%d: %s\n", __FILE__, __LINE__, __FUNCTION__);
 
     /* Setup the pipe to be close-on-exec */
     opal_fd_set_cloexec(write_fd);
@@ -444,59 +456,30 @@ static int do_child(orte_odls_spawn_caddy_t *cd, int write_fd)
         }
     }
 
-    #ifdef RSGHACK
-    /* Hack environment to set Remote SimGrid connection port */
+    printf("%s:%d: %s\n", __FILE__, __LINE__, __FUNCTION__);
 
-    /* First, retrieve OMPI_COMM_WORLD_RANK */
-    long int rank = -1;
-    int error = 0;
+    /* Add the RsgRpcNetworkName environment variable */
+    /* First, count the number of env variables already present. */
     int nb_env_variables = 0;
-    const char * prefix = "OMPI_COMM_WORLD_RANK=";
-    size_t prefix_length = strlen(prefix);
+    for (char ** env = cd->env; *env != NULL; env++, nb_env_variables++);
 
-    for (char ** env = cd->env; *env != NULL; env++)
-    {
-        nb_env_variables++;
-        size_t string_length = strlen(*env);
-        if (string_length < prefix_length)
-            continue;
-        else if (strncmp(prefix, *env, prefix_length) == 0) {
-            /* Found OMPI_COMM_WORLD_RANK. Parse value. */
-            const char * value_string = *env + prefix_length;
-
-            char * endptr;
-            errno = 0;
-            rank = strtol(value_string, &endptr, 0);
-            if (errno != 0) {
-                printf("%s:%d Cannot parse OMPI_COMM_WORLD_RANK value. "
-                    "Env string: '%s'. Value string: '%s'. Value int: %ld\n",
-                    __FILE__, __LINE__, *env, value_string, rank);
-                error = 1;
-            }
-            break;
+    errno = 0;
+    cd->env = reallocarray(cd->env, sizeof(char *), nb_env_variables + 2);
+    if (errno != 0) {
+        printf("%s:%d Realloaction of environment variables failed!\n",
+            __FILE__, __LINE__);
+    }else {
+        int err = asprintf(&cd->env[nb_env_variables],
+            "%s=%s", env_variable_name_to_add, env_variable_value_to_add);
+        if (err == -1) {
+            printf("%s:%d asprintf failed!\n", __FILE__, __LINE__);
         }
+        cd->env[nb_env_variables+1] = NULL;
     }
-
-    if (rank != -1 && error == 0) {
-        /* Set the RsgRpcNetworkName environment variable */
-        errno = 0;
-        cd->env = reallocarray(cd->env, sizeof(char *), nb_env_variables + 2);
-        if (errno != 0) {
-            printf("%s:%d Realloaction of environment variables failed!\n",
-                __FILE__, __LINE__);
-        } else {
-            int err = asprintf(&cd->env[nb_env_variables],
-                "RsgRpcNetworkName=Proc%ld", rank);
-            if (err == -1) {
-                printf("%s:%d asprintf failed!\n", __FILE__, __LINE__);
-            }
-            cd->env[nb_env_variables+1] = NULL;
-        }
-    }
-    #endif // RSGHACK
 
     /* Exec the new executable */
     printf("%s:%d CALLING EXECVE\n", __FILE__, __LINE__);
+    fflush(stdout);
     execve(cd->cmd, cd->argv, cd->env);
     getcwd(dir, sizeof(dir));
     send_error_show_help(write_fd, 1,
@@ -508,6 +491,7 @@ static int do_child(orte_odls_spawn_caddy_t *cd, int write_fd)
 
 static int do_parent(orte_odls_spawn_caddy_t *cd, int read_fd)
 {
+    printf("%s:%d: %s\n", __FILE__, __LINE__, __FUNCTION__);
     int rc;
     orte_odls_pipe_err_msg_t msg;
     char file[ORTE_ODLS_MAX_FILE_LEN + 1], topic[ORTE_ODLS_MAX_TOPIC_LEN + 1], *str = NULL;
@@ -631,26 +615,101 @@ static int do_parent(orte_odls_spawn_caddy_t *cd, int read_fd)
     return ORTE_SUCCESS;
 }
 
-// struct RemoteSimGridServerInfo
-// {
-//     int link[2]; // Used to get rsg_server's stdout
-//     pid_t pid; // rsg_server's pid
-// };
+struct RemoteSimGridServerInfo
+{
+    FILE* read_pipe;
+};
 
-// extern struct RemoteSimGridServerInfo global_rsg_server_info;
+struct RemoteSimGridServerInfo global_rsg_server_info;
 
-// void initialize_global_rsg_server_info()
-// {
-//     printf("%s:%d: initializing global RSG server info\n", __FILE__, __LINE__);
-//     struct RemoteSimGridServerInfo global_rsg_info;
-//     global_rsg_info.pid = -42;
-// }
+void initialize_global_rsg_server_info()
+{
+#ifdef RSGHACK
+    printf("%s:%d: initializing global RSG server info\n", __FILE__, __LINE__);
+    global_rsg_server_info.read_pipe = NULL;
+#endif // RSGHACK
+}
+
+/**
+ * @brief Read Remote SimGrid server output until an external call is requested.
+ * @details The output parameters are allocated by this function
+ *          (if 0 is returned) and are expected to be deallocated by free.
+ *
+ * @param[in,out] rsg_server_fp Remote SimGrid server read pipe
+ * @param[out] env_variable_name The name of the environment variable to set.
+ * @param[out] env_variable_value The value of the environment variable to set.
+ * @param[out] command The command that is expected to be executed.
+ * @return 0 on success (external call request has been found),
+ *         1 on error (process terminated without doing the request)
+ */
+int wait_rsg_server_external_call(FILE * rsg_server_fp,
+    char ** env_variable_name, char ** env_variable_value, char ** command)
+{
+    int return_value = 1;
+
+    /* Initialize output parameters (safety) */
+    *env_variable_name = NULL;
+    *env_variable_value = NULL;
+    *command = NULL;
+
+    /* Regular expression to parse rsg_server output. */
+    char * regex_str = ".*Waiting for client external launch\\. Environment: (.*)=(.*)\\. Command: (.*)\n";
+    size_t max_groups = 4;
+
+    regex_t compiled_regex;
+    regmatch_t group_array[max_groups];
+
+    if (regcomp(&compiled_regex, regex_str, REG_EXTENDED))
+    {
+        printf("Could not compile regular expression.\n");
+        return 1;
+    };
+
+    /* Read the output a line at a time. */
+    size_t buf_size = 4096;
+    char line[4096];
+    while (fgets(line, buf_size - 1, rsg_server_fp) != NULL)
+    {
+        /* Execute the regular expression on the line read. */
+        if (regexec(&compiled_regex, line, max_groups, group_array, 0) == 0)
+        {
+            /* All groups must have been caught */
+            if (group_array[0].rm_so == -1 ||
+                group_array[1].rm_so == -1 ||
+                group_array[2].rm_so == -1 ||
+                group_array[3].rm_so == -1)
+                break;
+
+            /* Black magic that allocates strings for each matched group. */
+            asprintf(env_variable_name, "%*.*s",
+                group_array[1].rm_eo - group_array[1].rm_so,
+                group_array[1].rm_eo - group_array[1].rm_so,
+                line + group_array[1].rm_so);
+            asprintf(env_variable_value, "%*.*s",
+                group_array[2].rm_eo - group_array[2].rm_so,
+                group_array[2].rm_eo - group_array[2].rm_so,
+                line + group_array[2].rm_so);
+            asprintf(command, "%*.*s",
+                group_array[3].rm_eo - group_array[3].rm_so,
+                group_array[3].rm_eo - group_array[3].rm_so,
+                line + group_array[3].rm_so);
+
+            return_value = 0;
+            break;
+        }
+    }
+
+    /* Cleanup. */
+    regfree(&compiled_regex);
+    return return_value;
+}
 
 /**
  *  Fork/exec the specified processes
  */
 static int odls_default_fork_local_proc(void *cdptr)
 {
+    printf("%s:%d: %s\n", __FILE__, __LINE__, __FUNCTION__);
     orte_odls_spawn_caddy_t *cd = (orte_odls_spawn_caddy_t*)cdptr;
     int p[2];
     pid_t pid;
@@ -675,26 +734,49 @@ static int odls_default_fork_local_proc(void *cdptr)
 
 #ifdef RSGHACK
     // Instantiate a RSG server if needed (in current process, not in the child)
-    // if (global_rsg_server_info.pid == -42)
-    // {
-    //     pipe(global_rsg_server_info.link);
-    //     global_rsg_server_info.pid = fork();
+    if (global_rsg_server_info.read_pipe == NULL)
+    {
+        // TODO: generate rsg server deployment file
+        const char * rsg_server_cmd = "~/proj/remote-simgrid/build/bin/rsg_server \
+            --platform-file ~/proj/remote-simgrid/tests/resources/two_hosts_platform.xml \
+            --deployment-file ~/proj/remote-simgrid/build/tests/mailbox/send_receive/deploy.xml \
+            --server-only \
+            2>&1";
 
-    //     if(global_rsg_server_info.pid == 0) // child (RSG server)
-    //     {
-    //         // setup stdout links
-    //         dup2(link[1], STDOUT_FILENO);
-    //         close(link[0]);
-    //         close(link[1]);
-    //         execl("rsg_server");
-    //     }
-    //     else if (global_rsg_server_info.pid != -1)
-    //     {
-    //         close(link[1]);
-    //     }
+        printf("%s%d: launching rsg_server\n", __FILE__, __LINE__);
+        global_rsg_server_info.read_pipe = popen(rsg_server_cmd, "r");
+        if (global_rsg_server_info.read_pipe == NULL)
+        {
+            printf("Failed to run remote simgrid server\n");
+            ORTE_ERROR_LOG(ORTE_ERR_UNRECOVERABLE);
+            if (NULL != child) {
+                child->state = ORTE_PROC_STATE_FAILED_TO_START;
+                child->exit_code = ORTE_ERR_SYS_LIMITS_PIPES;
+            }
+            return ORTE_ERR_UNRECOVERABLE;
+        }
+    }
 
-    // }
-#endif
+    // Wait for rsg_server external process launch requirement
+    char * env_variable_name;
+    char * env_variable_value;
+    char * cmd;
+    int rsgs_err = wait_rsg_server_external_call(global_rsg_server_info.read_pipe,
+        &env_variable_name, &env_variable_value, &cmd);
+    if (rsgs_err != 0)
+    {
+        printf("Could not find a rsg_server request for external process launch\n");
+        ORTE_ERROR_LOG(ORTE_ERR_UNRECOVERABLE);
+        if (NULL != child) {
+            child->state = ORTE_PROC_STATE_FAILED_TO_START;
+            child->exit_code = ORTE_ERR_SYS_LIMITS_PIPES;
+        }
+        return ORTE_ERR_UNRECOVERABLE;
+    }
+    printf("%s:%d RSG_SERVER waits for %s=%s %s\n", __FILE__, __LINE__,
+           env_variable_name, env_variable_value, cmd);
+
+#endif // RSGHACK
 
     /* Fork off the child */
     pid = fork();
@@ -713,9 +795,16 @@ static int odls_default_fork_local_proc(void *cdptr)
 
     if (pid == 0) {
         close(p[0]);
-        do_child(cd, p[1]);
+        do_child(cd, p[1], env_variable_name, env_variable_value);
+        //do_child(cd, p[1], "RsgRpcNetworkName", "Proc0");
         /* Does not return */
     }
+
+#ifdef RSGHACK
+    /*free(env_variable_name);
+    free(env_variable_value);
+    free(cmd);*/
+#endif // RSGHACK
 
     close(p[1]);
     return do_parent(cd, p[0]);
