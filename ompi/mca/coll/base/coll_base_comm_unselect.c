@@ -49,58 +49,58 @@
 
 int mca_coll_base_comm_unselect(ompi_communicator_t * comm)
 {
-    CLOSE(comm, allgather);
-    CLOSE(comm, allgatherv);
-    CLOSE(comm, allreduce);
-    CLOSE(comm, alltoall);
-    CLOSE(comm, alltoallv);
-    CLOSE(comm, alltoallw);
-    CLOSE(comm, barrier);
-    CLOSE(comm, bcast);
-    CLOSE(comm, exscan);
-    CLOSE(comm, gather);
-    CLOSE(comm, gatherv);
-    CLOSE(comm, reduce);
-    CLOSE(comm, reduce_scatter_block);
-    CLOSE(comm, reduce_scatter);
-    CLOSE(comm, scan);
-    CLOSE(comm, scatter);
-    CLOSE(comm, scatterv);
+    // CLOSE(comm, allgather);
+    // CLOSE(comm, allgatherv);
+    // CLOSE(comm, allreduce);
+    // CLOSE(comm, alltoall);
+    // CLOSE(comm, alltoallv);
+    // CLOSE(comm, alltoallw);
+    // CLOSE(comm, barrier);
+    // CLOSE(comm, bcast);
+    // CLOSE(comm, exscan);
+    // CLOSE(comm, gather);
+    // CLOSE(comm, gatherv);
+    // CLOSE(comm, reduce);
+    // CLOSE(comm, reduce_scatter_block);
+    // CLOSE(comm, reduce_scatter);
+    // CLOSE(comm, scan);
+    // CLOSE(comm, scatter);
+    // CLOSE(comm, scatterv);
 
-    CLOSE(comm, iallgather);
-    CLOSE(comm, iallgatherv);
-    CLOSE(comm, iallreduce);
-    CLOSE(comm, ialltoall);
-    CLOSE(comm, ialltoallv);
-    CLOSE(comm, ialltoallw);
-    CLOSE(comm, ibarrier);
-    CLOSE(comm, ibcast);
-    CLOSE(comm, iexscan);
-    CLOSE(comm, igather);
-    CLOSE(comm, igatherv);
-    CLOSE(comm, ireduce);
-    CLOSE(comm, ireduce_scatter_block);
-    CLOSE(comm, ireduce_scatter);
-    CLOSE(comm, iscan);
-    CLOSE(comm, iscatter);
-    CLOSE(comm, iscatterv);
+    // CLOSE(comm, iallgather);
+    // CLOSE(comm, iallgatherv);
+    // CLOSE(comm, iallreduce);
+    // CLOSE(comm, ialltoall);
+    // CLOSE(comm, ialltoallv);
+    // CLOSE(comm, ialltoallw);
+    // CLOSE(comm, ibarrier);
+    // CLOSE(comm, ibcast);
+    // CLOSE(comm, iexscan);
+    // CLOSE(comm, igather);
+    // CLOSE(comm, igatherv);
+    // CLOSE(comm, ireduce);
+    // CLOSE(comm, ireduce_scatter_block);
+    // CLOSE(comm, ireduce_scatter);
+    // CLOSE(comm, iscan);
+    // CLOSE(comm, iscatter);
+    // CLOSE(comm, iscatterv);
 
-    CLOSE(comm, neighbor_allgather);
-    CLOSE(comm, neighbor_allgatherv);
-    CLOSE(comm, neighbor_alltoall);
-    CLOSE(comm, neighbor_alltoallv);
-    CLOSE(comm, neighbor_alltoallw);
+    // CLOSE(comm, neighbor_allgather);
+    // CLOSE(comm, neighbor_allgatherv);
+    // CLOSE(comm, neighbor_alltoall);
+    // CLOSE(comm, neighbor_alltoallv);
+    // CLOSE(comm, neighbor_alltoallw);
 
-    CLOSE(comm, ineighbor_allgather);
-    CLOSE(comm, ineighbor_allgatherv);
-    CLOSE(comm, ineighbor_alltoall);
-    CLOSE(comm, ineighbor_alltoallv);
-    CLOSE(comm, ineighbor_alltoallw);
+    // CLOSE(comm, ineighbor_allgather);
+    // CLOSE(comm, ineighbor_allgatherv);
+    // CLOSE(comm, ineighbor_alltoall);
+    // CLOSE(comm, ineighbor_alltoallv);
+    // CLOSE(comm, ineighbor_alltoallw);
 
-    CLOSE(comm, reduce_local);
+    // CLOSE(comm, reduce_local);
 
-    free(comm->c_coll);
-    comm->c_coll = NULL;
+    // free(comm->c_coll);
+    // comm->c_coll = NULL;
 
     /* All done */
     return OMPI_SUCCESS;
